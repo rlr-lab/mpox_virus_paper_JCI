@@ -1,0 +1,1628 @@
+---
+title: "2026 JCI MPXV Epi Analysis"
+format: 
+html: default
+pdf: default
+editor: visual
+author: Lacy Simons
+---
+
+# Load Packages
+
+```{r}
+#load all packages 
+library(gtsummary)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readr)
+library(RColorBrewer)
+library(ggpie)
+library(ggpubr)
+library(ggsci)
+library(maps)
+library(ggthemes)
+library(sf)
+library(webshot2)
+library(ggspatial)
+library(gt)
+library(lme4) 
+library(ggeffects)
+library(lmerTest)
+library(lubridate)
+library(forcats)
+```
+
+# Data by Figure
+
+## Supplemental Figure 1
+
+### SFig 1A: US Choropleth
+
+Cumulative case counts per 100,000 people, Data as of March 05, 2024 at 2:00 pm EDT
+
+Data from CDC Mpox Dashboard
+
+```{r}
+#load in the states data from the maps package, this gives you polygon coordinates for US states.
+states_map <- map_data("state")
+
+#check list of states
+unique(states_map$region)
+
+#load in case and case rate data 
+us_state_case_data <- read_csv("r_map_data/us_case_rates_jan24.csv")
+
+#join map with data 
+us_map_data <- left_join(states_map, us_state_case_data, by = "region")
+
+#plot the map
+ggplot(us_map_data, aes(x = long, y = lat, group = group, fill = case_rate)) +
+  geom_polygon(color = "black") +
+  coord_fixed(1.3) +
+  scale_fill_distiller(palette = "PuRd", direction = 1) +  
+  theme_void() +
+  labs(title = "Cumulative Cases in the Unites States by State", 
+       fill= "Cases per 100,000 people") 
+ 
+
+
+```
+
+Case Rate Top 10\
+
+```{r}
+US_case_rate_table <- us_state_case_data %>%
+  arrange(desc(case_rate)) %>%
+  slice_head(n = 10) %>%
+  select(region, case_rate) %>%
+  gt() %>%
+  tab_header(
+    title = "Top 10 U.S. States by Case Rate"
+  ) %>%
+  fmt_number(
+    columns = case_rate,
+    decimals = 1
+  ) %>%
+  cols_label(
+    region = "State",
+    case_rate = "Case Rate"
+  ) %>%
+  tab_options(
+    table.font.names = "Helvetica",
+    table.align = "center",
+    heading.align = "center"
+  )
+
+# Save the table as a PDF
+gtsave(US_case_rate_table, "US_case_rate_table.pdf")
+```
+
+### SFig 1B: US Cases and Vaccinations
+
+Case data range 5/15/2022 through 4/20/2024
+
+Vaccine data range 5/22/2022 through 01/06/2024
+
+updated 10/15/25
+
+```{r}
+#read in csv file 
+us_data <- read_csv("us_data_101525.csv")
+# Assuming 'us_data' has columns: 'date_formated', 'count', 'type'
+# 'type' has 1 = Cases, 2 = First Dose, 3 = Second Dose
+
+#make sure the date column is the date class
+us_data$date_formated <- as.Date(us_data$date, format = "%m/%d/%Y")
+# Create a new dataset with a separate y-axis scale for First and Second Dose
+us_data_line <- us_data[us_data$type %in% c(2, 3), ]
+
+ggplot() +
+  # Bar plot for Cases (type 1)
+  geom_bar(data = us_data[us_data$type == 1, ], 
+           aes(x = date_formated, y = count, fill = factor(type)), 
+           stat = "identity", 
+           position = "identity") +
+  
+  # Line plot for First Dose (type 2) and Second Dose (type 3)
+  geom_line(data = us_data_line, 
+            aes(x = date_formated, y = count/25, color = factor(type), group = type), 
+            size = 0.8) +
+  
+  # Theme and titles
+  theme_classic() +
+  labs(title = "MPOX Cases and Vaccines Administered per Week in the US", 
+       x = "Date", 
+       y = "MPOX Cases", 
+       fill = NULL, 
+       color = "Vaccine Doses") +
+  
+  # Customize x-axis formatting
+  scale_x_date(date_labels = "%b, %y", 
+               date_breaks = "3 months"
+               ) +
+  
+  # Manual color scale
+  scale_fill_manual(values = c("1" = "seagreen3", "2" = "dodgerblue2", "3" = "red"),
+                    labels = c("Cases", "First Dose", "Second Dose")) +
+  scale_color_manual(values = c("2" = "dodgerblue2", "3" = "red"), 
+                     labels = c("First Dose", "Second Dose")) +
+  
+  # Adjust legend position and title
+  theme(legend.position = c(0.85, 0.8),
+        axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Change font family for x-axis
+        axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Change font family for y-axis
+        axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Change font family for x-axis text
+        axis.text.y = element_text(family = "Arial", size = 10),  # Change font family for y-axis text
+        legend.title = element_text(family = "Arial", size = 10),  # Change font family for legend title
+        legend.text = element_text(family = "Arial", size = 9),    # Change font family for legend text
+        plot.title = element_blank()) +  # Hide title
+  # Create a second y-axis for First and Second Dose (lines), also includes the scale 
+  scale_y_continuous(sec.axis = sec_axis(~ .*25, name = "Vaccine Doses",
+                                         breaks = scales::pretty_breaks())) +
+  theme(axis.title.y.right = element_text(margin = margin(l = 15)))
+```
+
+```{r}
+#determine amount for each category in vizualization
+
+#Type 1 Cases
+us_data %>%
+  filter(type == "1") %>%
+  summarise(total_count = sum(count))
+
+#Type 2 First vaccine Dose
+us_data %>%
+  filter(type == "2") %>%
+  summarise(total_count = sum(count))
+
+#Type 3 Second vaccine Dose
+us_data %>%
+  filter(type == "3") %>%
+  summarise(total_count = sum(count))
+```
+
+## Supplemental Figure 2
+
+### SFig 2A: Illinois Choropleth
+
+Cumulative case counts per 100,000 people from 5/15/2022 to 4/30/2024
+
+data request via Andrew English at IDPH
+
+data range: May 2022 through April 2024
+
+```{r}
+#load in US county map data from the maps package, this gives you polygon coordinates for all US counties.
+county_map <- map_data("county")
+
+#filter for only counties in Illinois
+il_county_map <- county_map %>%
+  filter(region == "illinois")
+
+#check list of counties
+unique(il_county_map$subregion)
+
+#load in case and case rate data 
+il_county_case_data <- read_csv("r_map_data/Illinois_case_rates_jan24.csv")
+
+#join map with data 
+il_map_data <- left_join(il_county_map, il_county_case_data, by = "subregion")
+
+#plot the map
+ggplot(il_map_data, aes(x = long, y = lat, group = group, fill = case_rate)) +
+  geom_polygon(color = "black") +
+  coord_fixed(1.3) +
+  scale_fill_distiller(palette = "PuRd", direction = 1) +  
+  theme_void() +
+  labs(title = "Cumulative Cases in Illinois by County",
+       fill= "Cases per 100,000 people")
+s
+```
+
+### SFig 2B: Illinois Cases and Vaccinations
+
+data request via Andrew English at IDPH
+
+data range: May 2022 through April 2024, by week starting dates
+
+```{r}
+#read in csv file 
+idph_data <- read_csv("idph_cases_vax.csv")
+# 'type' has 1 = Cases, 2 = Vaccines
+
+#make sure the date column is the date class
+idph_data$date_formated <- as.Date(idph_data$date, format = "%m/%d/%Y")
+
+# Create a new dataset with a separate y-axis scale for First and Second Dose
+idph_data_line <- idph_data[idph_data$type %in% c(2), ]
+
+# Line plot for First Dose (type 2)
+ggplot() +
+  # Bar plot for Cases (type 1) - if needed
+  geom_bar(data = idph_data[idph_data$type == 1, ], 
+           aes(x = date_formated, y = count, fill = factor(type)), 
+           stat = "identity", 
+           position = "identity") +
+  
+  # Line plot for First Dose (type 2) only
+   geom_line(data = idph_data_line, 
+            aes(x = date_formated, y = count/25, color = factor(type), group = type), 
+            size = 0.8) +
+  
+  # Theme and titles
+  theme_classic() +
+  labs(title = "MPOX Cases and Vaccines Administered per Week in Illinois", 
+       x = "Date", 
+       y = "Case Count", 
+       fill = NULL, 
+       color = NULL) +
+  
+  # Customize x-axis formatting
+  scale_x_date(date_labels = "%b, %y", date_breaks = "3 months") +
+  
+  # Manual color scale for cases and doses
+  scale_fill_manual(values = c("1" = "seagreen3", "2" = "dodgerblue2"),
+                    labels = c("Cases", "Vaccines Administered")) +
+  scale_color_manual(values = c("2" = "dodgerblue2"), 
+                     labels = c("Vaccines Administered")) +
+  
+ theme(legend.position = c(0.8, 0.8),
+        axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Change font family for x-axis
+        axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Change font family for y-axis
+        axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Change font family for x-axis text
+        axis.text.y = element_text(family = "Arial", size = 10),  # Change font family for y-axis text
+        legend.title = element_text(family = "Arial", size = 10),  # Change font family for legend title
+        legend.text = element_text(family = "Arial", size = 9),    # Change font family for legend text
+        plot.title = element_blank()) +  # Hide title
+  # Create a second y-axis for First and Second Dose (lines), also includes the scale 
+  scale_y_continuous(sec.axis = sec_axis(~ .*25, name = "Vaccine Doses",
+                                         breaks = scales::pretty_breaks()))+
+  theme(axis.title.y.right = element_text(margin = margin(l = 15)))
+```
+
+```{r}
+#determine amount for each category in vizualization
+
+#Type 1 Cases
+idph_data %>%
+  filter(type == "1") %>%
+  summarise(total_count = sum(count))
+
+#Type 2 Vaccine Doses
+idph_data %>%
+  filter(type == "2") %>%
+  summarise(total_count = sum(count))
+
+```
+
+### SFig 2C: Illinois Age Distribution
+
+data request via Andrew English at IDPH
+
+data range: May 2022 through April 2024
+
+```{r}
+#import csv with data
+illinois_age <- read.csv("illinois_age_101625.csv")
+
+# Convert 'age' to a factor with levels in the same order as in the dataset
+illinois_age$age <- factor(illinois_age$age, levels = illinois_age$age)
+
+# Now plot the data
+ggplot(illinois_age, aes(x = age, y = count)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") + 
+  coord_flip() +
+  labs(title = NULL, x = "Age Group", y = "Case Count") +
+  theme_classic() + 
+  theme(
+    axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Adjust margin and font for y-axis
+    axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Adjust margin for x-axis
+    axis.text.x = element_text(family = "Arial", hjust = 0.5, vjust = 1),  # Customize x-axis text appearance
+    axis.text.y = element_text(family = "Arial", size = 10),  # Customize y-axis text appearance
+    legend.position = "none",  # Remove legend since no fill or color scale is specified
+    legend.title = element_text(family = "Arial", size = 10),  # Customize legend title (if any)
+    legend.text = element_text(family = "Arial", size = 9)  # Customize legend text (if any)
+  )
+
+```
+
+### SFig 2D: Illinois Race/Ethnicity
+
+data request via Andrew English at IDPH
+
+data range: May 2022 through April 2024
+
+```{r}
+#read in csv with two columns race_ethnicity and count
+il_race_pie<-read.csv("illinois_race.csv")
+
+#make sure the count is numeric
+il_race_pie$count<-as.numeric(il_race_pie$count)
+
+#expand the lines in the spreadsheet so each individual count is a row 
+il_race_pie<-il_race_pie %>%
+  uncount(count)
+#look at color pallet and match to figure 1
+display.brewer.pal(n = 8, name = "Dark2")
+brewer.pal(n = 8, name = "Dark2")
+
+il_race_colors <- c(
+  "NHPI" = "#666666",
+  "AIAN" = "#A6761D",
+  "Multiple Races " = "#66A61E",
+  "Unknown" = "#D95F02",
+  "Asian" = "#7570B3",
+  "Other" = "#1B9E77",
+  "Black " = "#E7298A",
+  "White" = "#E6AB02"
+)
+
+#make a donut pie chart with callout labels 
+ggdonut(data = il_race_pie, group_key = "race", count_type = "full",
+        label_info = "all", label_type = "horizon",
+        label_size = 4, label_pos = "in") +  scale_fill_manual(values = il_race_colors) 
+  
+```
+
+## Figure 1
+
+### Fig 1A: Chicago Case and Vaccines
+
+Chicago MPOX Dashboard
+
+Case data range June 2022 through April 2024, weekly case counts - does not specify end or start but is probably week end
+
+Vaccine data range June 2022 through 12/30/2023
+
+\*updated on 10/15/25 to change dates from week end to week start for MMWR consistency
+
+```{r}
+#import data
+chicago_data <- read_csv("cdph_case_vax_data_101525.csv")
+
+#correctly format dates
+chicago_data$date_formated <- as.Date(chicago_data$Date, format = "%m/%d/%Y")
+
+#drop NA
+chicago_data <- chicago_data[!is.na(chicago_data$date_formated), ]
+
+# Assuming 'chicago_data' has columns: 'date_formated', 'count', 'type'
+# 'type' has 1 = Cases, 2 = First Dose, 3 = Second Dose
+
+# Create a new dataset with a separate y-axis scale for First and Second Dose
+chicago_data_line <- chicago_data[chicago_data$type %in% c(2, 3), ]
+
+# Plot
+ggplot() +
+  # Bar plot for Cases (type 1)
+  geom_bar(data = chicago_data[chicago_data$type == 1, ], 
+           aes(x = date_formated, y = count, fill = factor(type)), 
+           stat = "identity", 
+           position = "identity") +
+  
+  # Line plot for First Dose (type 2) and Second Dose (type 3)
+  geom_line(data = chicago_data_line, 
+            aes(x = date_formated, y = count/25, color = factor(type), group = type), 
+            size = 0.8) +
+  
+  # Theme and titles
+  theme_classic() +
+  labs(title = "MPOX Cases and Vaccines Administered per Week in Chicago", 
+       x = "Date", 
+       y = "MPOX Cases", 
+       fill = NULL, 
+       color = "Vaccine Doses") +
+  
+  # Customize x-axis formatting
+  scale_x_date(
+  breaks = seq(min(chicago_data$date_formated), max(chicago_data$date_formated), by = "3 months"),
+  date_labels = "%b, %y"
+) +
+  
+  # Manual color scale
+  scale_fill_manual(values = c("1" = "seagreen3", "2" = "dodgerblue2", "3" = "red"),
+                    labels = c("Cases", "First Dose", "Second Dose")) +
+  scale_color_manual(values = c("2" = "dodgerblue2", "3" = "red"), 
+                     labels = c("First Dose", "Second Dose")) +
+  
+theme(legend.position = c(0.85, 0.8),
+        axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Change font family for x-axis
+        axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Change font family for y-axis
+        axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Change font family for x-axis text
+        axis.text.y = element_text(family = "Arial", size = 10),  # Change font family for y-axis text
+        legend.title = element_text(family = "Arial", size = 10),  # Change font family for legend title
+        legend.text = element_text(family = "Arial", size = 9),    # Change font family for legend text
+        plot.title = element_blank()) +  # Hide title
+  # Create a second y-axis for First and Second Dose (lines), also includes the scale 
+  scale_y_continuous(sec.axis = sec_axis(~ .*25, name = "Vaccine Doses",
+                                         breaks = scales::pretty_breaks()))+
+  theme(axis.title.y.right = element_text(margin = margin(l = 15)))
+```
+
+```{r}
+#determine amount for each category in vizualization
+
+#Tyoe 1 Cases
+chicago_data %>%
+  filter(type == "1") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 2 First vaccine Dose
+chicago_data %>%
+  filter(type == "2") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 3 Second vaccine Dose
+chicago_data %>%
+  filter(type == "3") %>%
+  summarise(total_count = sum(count))
+```
+
+### Fig 1B: Chicago Age Distribution
+
+data range: June 2022 to July 2023
+
+<https://dph.illinois.gov/topics-services/diseases-and-conditions/mpox/data.html>
+
+```{r}
+#read in data 
+chicago_age <- read.csv("chicago_age.csv")
+
+#plot data
+ggplot(chicago_age, aes(x = age, y = count)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") +  # stat="identity" because 'value' is provided
+  coord_flip() +  # Flip coordinates to make it horizontal
+  labs(title = NULL, x = "Age Group", y = "Case Count") +
+  theme_classic() + 
+  scale_y_continuous(expand = c(0, 0), limits = c(0, NA)) +  # Ensure y-axis starts at 0
+  theme(
+    axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 20)),  # Move x-axis title (now y-axis after flip) down
+    axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Move y-axis title further from the axis
+    axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Adjust x-axis text
+    axis.text.y = element_text(family = "Arial", size = 10),  # Adjust y-axis text
+    plot.title = element_blank()  # Hide title
+  )
+```
+
+### Fig 1C: Chicago Ethnicity/Race
+
+data range: June 2022 to July 2023
+
+<https://dph.illinois.gov/topics-services/diseases-and-conditions/mpox/data.html>
+
+```{r}
+#read in csv with two columns race_ethnicity and count
+Race_Pie<-read.csv("chicago_race2.csv")
+
+#make sure the count is numeric
+Race_Pie$count<-as.numeric(as.character(Race_Pie$count))
+
+#expand the lines in the spreadsheet so each individual count is a row 
+Race_Pie<-Race_Pie %>%
+  uncount(count)
+
+#make a donut pie chart with callout labels 
+ggdonut(data = Race_Pie, group_key = "race_ethnicity", count_type = "full",
+        label_info = "all", label_type = "horizon",
+        label_size = 4, label_pos = "in") + scale_fill_brewer(palette = "Dark2") 
+  
+```
+
+### Fig 1D: Chicago Test Positivity Howard Brown
+
+data range June 2022- June 2024
+
+from Howard brown, using data from MPOX_monthly_all, not stratified by MSM
+
+```{r}
+#read in csv with data for stacked bar
+hb_mpox_tests <- read_csv("hb_mpox_tests.csv")
+
+#ensure the 'year' and 'month' columns are numeric
+hb_mpox_tests$year <- as.numeric(hb_mpox_tests$year)
+hb_mpox_tests$month <- as.numeric(hb_mpox_tests$month)
+
+#make a new column with month year
+hb_mpox_tests$date <- as.Date(paste(hb_mpox_tests$year, hb_mpox_tests$month, "01", sep = "-"), format = "%Y-%m-%d")
+
+# Change format to just "Year-Month"
+hb_mpox_tests$year_month <- format(hb_mpox_tests$date, "%Y-%m")
+```
+
+```{r}
+
+#read in data for rates line graph 
+hb_mpox_rates <- read_csv("hb_mpox_rates.csv")
+
+#make a new column with month year
+hb_mpox_rates$date <- as.Date(paste(hb_mpox_rates$year, hb_mpox_rates$month, "01", sep = "-"), format = "%Y-%m-%d")
+
+# Change format to just "Year-Month"
+hb_mpox_rates$year_month <- format(hb_mpox_rates$date, "%Y-%m")
+
+
+```
+
+```{r}
+#scaling for the y-axis
+scale_factor <- 3.34
+
+#plot both sets of data
+ggplot()+
+geom_bar(data = hb_mpox_tests, 
+           aes(x = date, y = test_count, fill = factor(test_type)), 
+           stat = "identity")  + 
+  theme_classic() +
+  labs(title = "MPOX test positivity", 
+       x = "Date", 
+       y = "Number of Tests", 
+       fill = "Test Result") +
+  scale_x_date(
+    breaks = seq(min(hb_mpox_tests$date), max(hb_mpox_tests$date), by = "1 month"),
+    labels = function(d) {
+      first_date <- min(hb_mpox_tests$date)
+      months_since_start <- as.integer((year(d) - year(first_date)) * 12 + month(d) - month(first_date))
+      lbls <- ifelse(months_since_start %% 3 == 0, format(d, "%Y-%b"), "")
+      return(lbls)
+    }
+  ) +
+   geom_line(data = hb_mpox_rates, 
+            aes(x = date, y = pos_rate*scale_factor), 
+            color = "black", size = 0.5) +
+  geom_point(data = hb_mpox_rates, 
+             aes(x=date, y=pos_rate*scale_factor), size = 1.5, shape = 21, fill = "black") +
+  labs(title = NULL, x = "Date", y = "Test Positivity %", color = "Test Positivity") +
+  
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_fill_manual(
+    values = c("1" = "orange", "2" = "grey"),  
+    labels = c("Positive", "Negative")) +
+  theme(legend.position = c(0.85, 0.8)) +
+  scale_y_continuous(
+  name = "Number of Tests",                     # Primary y-axis label
+  breaks = seq(0, 400, by = 50),              # Customize increments (adjust range as needed)
+  sec.axis = sec_axis(~ . / scale_factor,       # Transformation back for secondary axis
+                      name = "Test Positivity %",
+                      breaks = seq(0, 100, by = 20))  # Secondary axis increments
+)
+
+```
+
+## Figure 2
+
+### Fig 2A: CDPH STI Data
+
+Male only cases of STI per month from CDPH, data from Jeff Lauritsen 7/23/2024 [Jeff.Lauritsen\@cityofchicago.org](mailto:Jeff.Lauritsen@cityofchicago.org)
+
+Data used was Male only
+
+```{r}
+#data is stratified by test type according to the following key: 1- Chlamydia, 2- Gonorrhea, 3- Syphilis, 4- HIV, 5- Mpox
+
+#read in data file 
+cdph_sti_data <- read.csv("cdph_sti_data.csv")
+
+#formatting the data
+#ensure the 'year' and 'month' columns are numeric
+cdph_sti_data$Year <- as.numeric(cdph_sti_data$Year)
+cdph_sti_data$Month <- as.numeric(cdph_sti_data$Month)
+
+#make a new column with month year
+cdph_sti_data$date <- as.Date(paste(cdph_sti_data$Year, cdph_sti_data$Month, "01", sep = "-"), format = "%Y-%m-%d")
+
+# Change format to just "Year-Month"
+cdph_sti_data$year_month <- format(cdph_sti_data$date, "%Y-%m")
+cdph_sti_data$year_month <- as.Date(paste0(cdph_sti_data$year_month, "-01"))
+
+#make sure test_type is a factor
+cdph_sti_data$test_type <- factor(cdph_sti_data$test_type,
+                                levels = c(1, 2, 3, 4, 5),
+                                labels = c("Chlamydia", "Gonorrhea", "Syphilis", "HIV", "Mpox"))
+
+```
+
+```{r}
+#plot data
+ggplot(data = cdph_sti_data, aes(x = year_month, y = pos_cases, color = test_type, group = test_type)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Positive Cases Per Month in 2022 by Test Type",
+    x = "Date",
+    y = "Positive Cases",
+    color = "Test Type"
+  ) +
+  scale_x_date(
+    date_breaks = "1 months",
+    date_labels = "%b"  # Optional: Formats as "Jan 2023", etc.
+  ) +
+  scale_color_manual(
+    values = c(
+      "Chlamydia" = "seagreen3",
+      "Gonorrhea" = "dodgerblue2",
+      "Syphilis" = "maroon2",
+      "HIV" = "goldenrod1",
+      "Mpox" = "darkorchid1"
+    )
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotates labels for readability
+```
+
+### Fig 2B: Howard Brown STI Data
+
+-Includes all sexes
+
+```{r}
+#data is stratified by test type according to the following key: 1- Chlamydia, 2- Gonorrhea, 3- Syphilis, 4- HIV, 5- Mpox
+
+#read in data file 
+hb_sti_data <- read.csv("hb_sti_data.csv")
+
+#formatting the data
+#ensure the 'year' and 'month' columns are numeric
+hb_sti_data$year <- as.numeric(hb_sti_data$year)
+hb_sti_data$month <- as.numeric(hb_sti_data$month)
+
+#make a new column with month year
+hb_sti_data$date <- as.Date(paste(hb_sti_data$year, hb_sti_data$month, "01", sep = "-"), format = "%Y-%m-%d")
+
+# Change format to just "Year-Month"
+hb_sti_data$year_month <- format(hb_sti_data$date, "%Y-%m")
+hb_sti_data$year_month <- as.Date(paste0(hb_sti_data$year_month, "-01"))
+
+#make sure test_type is a factor
+hb_sti_data$test_type <- factor(hb_sti_data$test_type,
+                                levels = c(1, 2, 3, 4, 5),
+                                labels = c("Chlamydia", "Gonorrhea", "Syphilis", "HIV", "Mpox"))
+
+
+```
+
+```{r}
+#plot data
+ggplot(data = hb_sti_data, aes(x = year_month, y = pos_rate, color = test_type, group = test_type)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Positive Rate Over Time by Test Type",
+    x = "Date",
+    y = "Positive Rate",
+    color = "Test Type"
+  ) +
+  scale_x_date(
+    date_breaks = "3 months",
+    date_labels = "%b %Y"  # Optional: Formats as "Jan 2023", etc.
+  ) +
+  scale_color_manual(
+    values = c(
+      "Chlamydia" = "seagreen3",
+      "Gonorrhea" = "dodgerblue2",
+      "Syphilis" = "maroon2",
+      "HIV" = "goldenrod1",
+      "Mpox" = "darkorchid1"
+    )
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotates labels for readability
+```
+
+#### data for just males- this is in manuscript
+
+```{r}
+#data is stratified by test type according to the following key: 1- Chlamydia, 2- Gonorrhea, 3- Syphilis, 4- HIV, 5- Mpox
+
+#read in data file 
+hb_sti_data_male_only <- read.csv("hb_sti_data_male_only.csv")
+
+#formatting the data
+#ensure the 'year' and 'month' columns are numeric
+hb_sti_data_male_only$year <- as.numeric(hb_sti_data_male_only$year)
+hb_sti_data_male_only$month <- as.numeric(hb_sti_data_male_only$month)
+
+#make a new column with month year
+hb_sti_data_male_only$date <- as.Date(paste(hb_sti_data_male_only$year, hb_sti_data$month, "01", sep = "-"), format = "%Y-%m-%d")
+
+# Change format to just "Year-Month"
+hb_sti_data_male_only$year_month <- format(hb_sti_data_male_only$date, "%Y-%m")
+hb_sti_data_male_only$year_month <- as.Date(paste0(hb_sti_data_male_only$year_month, "-01"))
+
+#make sure test_type is a factor
+hb_sti_data_male_only <- hb_sti_data_male_only %>%
+  mutate(test_type = factor(test_type,
+                            levels = c(1, 2, 3, 4, 5),
+                            labels = c("Chlamydia", "Gonorrhea", "Syphilis", "HIV", "Mpox")))
+
+
+```
+
+```{r}
+#plot data
+ggplot(data = hb_sti_data_male_only, aes(x = year_month, y = pos_rate, color = test_type, group = test_type)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Positive Rate Over Time by Test Type",
+    x = "Date",
+    y = "Positive Rate",
+    color = "Test Type"
+  ) +
+  scale_x_date(
+    date_breaks = "3 months",
+    date_labels = "%b %Y"  # Optional: Formats as "Jan 2023", etc.
+  ) +
+  scale_color_manual(
+    values = c(
+      "Chlamydia" = "seagreen3",
+      "Gonorrhea" = "dodgerblue2",
+      "Syphilis" = "maroon2",
+      "HIV" = "goldenrod1",
+      "Mpox" = "darkorchid1"
+    )
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotates labels for readability
+```
+
+Data in table format
+
+```{r}
+hb_sti_monthly_pos_wide <- hb_sti_data_male_only %>%
+  select(year_month, test_type, pos_tests) %>%
+  pivot_wider(
+    names_from = test_type,
+    values_from = pos_tests,
+    values_fill = 0
+  ) %>%
+  arrange(year_month)
+
+gt_hb_sti_monthly_pos <- hb_sti_monthly_pos_wide %>%
+  gt() %>%
+  tab_header(
+    title = "Monthly STI Positive Test Counts by Type"
+  ) %>%
+  cols_label(
+    year_month = "Month"
+  ) %>%
+  fmt_date(
+    columns = year_month,
+    date_style = "yMMM"
+  )
+
+gt_hb_sti_monthly_pos
+
+gt::gtsave(gt_hb_sti_monthly_pos, "HB_STI_Monthly_Positive_Counts.png")
+
+```
+
+## Supplemental Table 2
+
+```{r}
+#put data in wide format and recode 
+
+hb_sti_wide <- hb_sti_data_male_only %>%
+  mutate(
+    test_type = recode(as.character(test_type),
+                       "1" = "Chlamydia",
+                       "2" = "Gonorrhea",
+                       "3" = "Syphilis",
+                       "4" = "HIV",
+                       "5" = "Mpox"),
+    year_month = sprintf("%d-%02d", year, month)
+  ) %>%
+  select(year_month, test_type, pos_tests, total_tests, pos_rate) %>%
+  pivot_wider(
+    names_from = test_type,
+    values_from = c(pos_tests, total_tests, pos_rate)
+  ) %>%
+  select(
+    year_month,
+
+    pos_tests_Chlamydia,
+    total_tests_Chlamydia,
+    pos_rate_Chlamydia,
+
+    pos_tests_Gonorrhea,
+    total_tests_Gonorrhea,
+    pos_rate_Gonorrhea,
+
+    pos_tests_Syphilis,
+    total_tests_Syphilis,
+    pos_rate_Syphilis,
+
+    pos_tests_HIV,
+    total_tests_HIV,
+    pos_rate_HIV,
+
+    pos_tests_Mpox,
+    total_tests_Mpox,
+    pos_rate_Mpox
+  ) %>%
+  arrange(year_month)
+
+hb_sti_wide
+```
+
+```{r}
+#generate table 
+
+hb_sti_wide <- hb_sti_wide %>%
+  mutate(
+    year_month = format(as.Date(paste0(year_month, "-01")), "%Y-%m")
+  )
+hb_sti_wide <- hb_sti_wide %>%
+  arrange(year_month) %>%
+  mutate(
+    year_month = format(
+      as.Date(paste0(year_month, "-01")),
+      "%b %Y"
+    )
+  )
+
+gt_hb_sti_wide <- hb_sti_wide %>%
+  gt() %>%
+  tab_header(
+    title = "Monthly STI Testing Summary by Type"
+  ) %>%
+  tab_spanner(
+    label = "Chlamydia",
+    columns = c(pos_tests_Chlamydia, total_tests_Chlamydia, pos_rate_Chlamydia)
+  ) %>%
+  tab_spanner(
+    label = "Gonorrhea",
+    columns = c(pos_tests_Gonorrhea, total_tests_Gonorrhea, pos_rate_Gonorrhea)
+  ) %>%
+  tab_spanner(
+    label = "Syphilis",
+    columns = c(pos_tests_Syphilis, total_tests_Syphilis, pos_rate_Syphilis)
+  ) %>%
+  tab_spanner(
+    label = "HIV",
+    columns = c(pos_tests_HIV, total_tests_HIV, pos_rate_HIV)
+  ) %>%
+  tab_spanner(
+    label = "Mpox",
+    columns = c(pos_tests_Mpox, total_tests_Mpox, pos_rate_Mpox)
+  ) %>%
+  cols_label(
+    year_month = "Month",
+
+    pos_tests_Chlamydia = "Positive",
+    total_tests_Chlamydia = "Total",
+    pos_rate_Chlamydia = "Rate",
+
+    pos_tests_Gonorrhea = "Positive",
+    total_tests_Gonorrhea = "Total",
+    pos_rate_Gonorrhea = "Rate",
+
+    pos_tests_Syphilis = "Positive",
+    total_tests_Syphilis = "Total",
+    pos_rate_Syphilis = "Rate",
+
+    pos_tests_HIV = "Positive",
+    total_tests_HIV = "Total",
+    pos_rate_HIV = "Rate",
+
+    pos_tests_Mpox = "Positive",
+    total_tests_Mpox = "Total",
+    pos_rate_Mpox = "Rate"
+  ) %>%
+  fmt_number(
+    columns = c(
+      pos_rate_Chlamydia,
+      pos_rate_Gonorrhea,
+      pos_rate_Syphilis,
+      pos_rate_HIV,
+      pos_rate_Mpox
+    ),
+    decimals = 2
+  )%>%
+
+  # ADD THE STYLING HERE
+  tab_style(
+    style = cell_text(color = "#000000"),
+    locations = cells_body()
+  ) %>%
+  tab_style(
+    style = cell_text(
+      color = "#000000",
+      weight = "bold"
+    ),
+    locations = list(
+      cells_column_labels(),
+      cells_column_spanners(),
+      cells_title(groups = "title")
+    )
+  ) %>%
+  tab_options(
+    table.border.top.color = "#000000",
+    table.border.bottom.color = "#000000",
+    heading.border.bottom.color = "#000000",
+    column_labels.border.top.color = "#000000",
+    column_labels.border.bottom.color = "#000000",
+    table_body.border.top.color = "#000000",
+    table_body.border.bottom.color = "#000000"
+  )
+gt_hb_sti_wide
+
+#save as a pdf 
+
+gtsave(
+  gt_hb_sti_wide,
+  "hb_sti_male_monthly_summary.png"
+)
+```
+
+### Fig 2C: RADAR Sex Partners
+
+```{r}
+#read in data 
+radar_data <- read_csv("radar_mpxv_questionairre.csv")
+
+#filter to 2022 data only 
+radar_data_2022 <- radar_data %>% filter(year == 2022) 
+
+#determine if what type of variable month is 
+str(radar_data_2022$month)
+#month is numberical, use as.factor to treat it as a categorical variable
+
+```
+
+Total sex partners in the last 6 months
+
+"vasexpartners_p6m" = Number of vaginal/anal sex partners in the past 6 months
+
+includes longitudinal data
+
+```{r}
+#filter out data to only include the first response by the participant in 2022
+radar_data_2022_first <- radar_data_2022 %>%
+  group_by(id) %>%
+  slice_min(order_by = month, n = 1, with_ties = FALSE) %>%
+  ungroup()
+```
+
+```{r}
+#check data distribution via a histogram
+hist(radar_data_2022_first$vasexpartners_p6m,
+     main = "Histogram of Number of Sex Partners",
+     xlab = "Number of Sex Partners",
+     col = "lightblue",
+     breaks = 20)
+
+
+#view the stats
+radar_data_2022_first %>%
+  group_by(month) %>%
+  summarise(
+    min = min(vasexpartners_male_p6m, na.rm = TRUE),
+    Q1 = quantile(vasexpartners_male_p6m, 0.25, na.rm = TRUE),
+    median = median(vasexpartners_male_p6m, na.rm = TRUE),
+    Q3 = quantile(vasexpartners_male_p6m, 0.75, na.rm = TRUE),
+    max = max(vasexpartners_male_p6m, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+#View stats using Tukey’s 5-number summary
+#Returns: minimum, lower-hinge (Q1), median, upper-hinge (Q3), and maximum.
+fivenum(radar_data_2022_first$vasexpartners_male_p6m)
+
+#stats
+#test for significant difference between months using Kruskal-Wallis Test (non-parametric ANOVA) use this because the data is heavily right skewed 
+kruskal.test(vasexpartners_p6m ~ as.factor(month), data = radar_data_2022_first)
+
+
+```
+
+Pseudo log scale (due to zero values)
+
+```{r}
+
+ggplot(radar_data_2022_first, aes(x = as.factor(month), y = vasexpartners_p6m)) + 
+  geom_boxplot(color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.6, color = "blue") +
+  scale_y_continuous(
+    trans = scales::pseudo_log_trans(base = 10)
+  ) +
+  labs(
+    title = "Sex Partners in the Last 6 Months",
+    x = "Month",
+    y = "Number of Sex Partners (pseudo-log scale)"
+  ) +
+  theme_classic()
+
+```
+
+Check Distribution of responses per month
+
+##### 2022-2024 Plot longitudinal data
+
+###### Format time date
+
+```{r}
+#format date
+radar_long <- radar_data %>%
+  mutate(
+    time_date = as.Date(sprintf("%04d-%02d-01", year, month))
+  ) %>%
+  arrange(id, time_date)
+```
+
+## Supplemental Figure 4
+
+### SFig 4A: Chicago Case and Vaccine Data 2022
+
+Chicago MPOX Dashboard
+
+Case data range June 2022 through April 2024, weekly case counts
+
+Vaccine data range June 2022 through 12/30/2023
+
+\*updated on 10/15/25 to change dates from week end to week start for MMWR consistency
+
+```{r}
+#import data
+chicago_data_2022 <- read_csv("cdph_case_vax_data_110325_2022.csv")
+
+#correctly format dates
+chicago_data_2022$date_formated <- as.Date(chicago_data_2022$Date, format = "%m/%d/%Y")
+
+#drop NA
+chicago_data_2022 <- chicago_data_2022[!is.na(chicago_data_2022$date_formated), ]
+
+# Assuming 'chicago_data' has columns: 'date_formated', 'count', 'type'
+# 'type' has 1 = Cases, 2 = First Dose, 3 = Second Dose
+
+# Create a new dataset with a separate y-axis scale for First and Second Dose
+chicago_data_line_2022 <- chicago_data_2022[chicago_data_2022$type %in% c(2, 3), ]
+
+# Plot
+ggplot() +
+  # Bar plot for Cases (type 1)
+  geom_bar(data = chicago_data_2022[chicago_data_2022$type == 1, ], 
+           aes(x = date_formated, y = count, fill = factor(type)), 
+           stat = "identity", 
+           position = "identity") +
+  
+  # Line plot for First Dose (type 2) and Second Dose (type 3)
+  geom_line(data = chicago_data_line_2022, 
+            aes(x = date_formated, y = count/25, color = factor(type), group = type), 
+            size = 0.8) +
+  
+  # Theme and titles
+  theme_classic() +
+  labs(title = "MPOX Cases and Vaccines Administered per Week in Chicago in 2022", 
+       x = "Date", 
+       y = "MPOX Cases", 
+       fill = NULL, 
+       color = "Vaccine Doses") +
+  
+  # Customize x-axis formatting
+  scale_x_date(
+  breaks = seq(min(chicago_data_2022$date_formated), max(chicago_data$date_formated), by = "1 months"),
+  date_labels = "%b, %y"
+) +
+  
+  # Manual color scale
+  scale_fill_manual(values = c("1" = "seagreen3", "2" = "dodgerblue2", "3" = "red"),
+                    labels = c("Cases", "First Dose", "Second Dose")) +
+  scale_color_manual(values = c("2" = "dodgerblue2", "3" = "red"), 
+                     labels = c("First Dose", "Second Dose")) +
+  
+theme(legend.position = c(0.85, 0.8),
+        axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Change font family for x-axis
+        axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Change font family for y-axis
+        axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Change font family for x-axis text
+        axis.text.y = element_text(family = "Arial", size = 10),  # Change font family for y-axis text
+        legend.title = element_text(family = "Arial", size = 10),  # Change font family for legend title
+        legend.text = element_text(family = "Arial", size = 9),    # Change font family for legend text
+        plot.title = element_blank()) +  # Hide title
+  # Create a second y-axis for First and Second Dose (lines), also includes the scale 
+  scale_y_continuous(sec.axis = sec_axis(~ .*25, name = "Vaccine Doses",
+                                         breaks = scales::pretty_breaks()))+
+  theme(axis.title.y.right = element_text(margin = margin(l = 15)))
+```
+
+```{r}
+#determine amount for each category in vizualization
+
+#Tyoe 1 Cases
+chicago_data_2022 %>%
+  filter(type == "1") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 2 First vaccine Dose
+chicago_data_2022 %>%
+  filter(type == "2") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 3 Second vaccine Dose
+chicago_data_2022 %>%
+  filter(type == "3") %>%
+  summarise(total_count = sum(count))
+```
+
+### SFig 4C: NYC Case and Vaccine Data 2022
+
+NY case data downloaded from <https://github.com/nychealth/monkeypox-data/blob/main/trends/cases-by-day.csv>
+
+NY vax data from <https://github.com/nychealth/mpv-vaccine-data/blob/main/weekly%20summary/weekly-doses-borough.csv>
+
+collated data
+
+cases=type 1 admin dose 1 = type 2 admin dose 2 = type 3
+
+```{r}
+#import data
+nyc_data <- read_csv("nyc_collated_data_110325.csv")
+
+#correctly format dates
+nyc_data$date_formated <- as.Date(nyc_data$week_start_date, format = "%m/%d/%Y")
+
+#drop NA
+nyc_data <- nyc_data[!is.na(nyc_data$date_formated), ]
+
+# Assuming 'chicago_data' has columns: 'date_formated', 'count', 'type'
+# 'type' has 1 = Cases, 2 = First Dose, 3 = Second Dose
+
+# Create a new dataset with a separate y-axis scale for First and Second Dose
+nyc_data_line <- nyc_data[nyc_data$type %in% c(2, 3), ]
+
+# Plot
+ggplot() +
+  # Bar plot for Cases (type 1)
+  geom_bar(data = nyc_data[nyc_data$type == 1, ], 
+           aes(x = date_formated, y = count, fill = factor(type)), 
+           stat = "identity", 
+           position = "identity") +
+  
+  # Line plot for First Dose (type 2) and Second Dose (type 3)
+  geom_line(data = nyc_data_line, 
+            aes(x = date_formated, y = count/25, color = factor(type), group = type), 
+            size = 0.8) +
+  
+  # Theme and titles
+  theme_classic() +
+  labs(title = "MPOX Cases and Vaccines Administered per Week in New York City", 
+       x = "Date", 
+       y = "MPOX Cases", 
+       fill = NULL, 
+       color = "Vaccine Doses") +
+  
+  # Customize x-axis formatting
+  scale_x_date(
+  breaks = seq(min(nyc_data$date_formated), max(nyc_data$date_formated), by = "1 months"),
+  date_labels = "%b, %y"
+) +
+  
+  # Manual color scale
+  scale_fill_manual(values = c("1" = "seagreen3", "2" = "dodgerblue2", "3" = "red"),
+                    labels = c("Cases", "First Dose", "Second Dose")) +
+  scale_color_manual(values = c("2" = "dodgerblue2", "3" = "red"), 
+                     labels = c("First Dose", "Second Dose")) +
+  
+theme(legend.position = c(0.85, 0.8),
+        axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Change font family for x-axis
+        axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Change font family for y-axis
+        axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Change font family for x-axis text
+        axis.text.y = element_text(family = "Arial", size = 10),  # Change font family for y-axis text
+        legend.title = element_text(family = "Arial", size = 10),  # Change font family for legend title
+        legend.text = element_text(family = "Arial", size = 9),    # Change font family for legend text
+        plot.title = element_blank()) +  # Hide title
+  # Create a second y-axis for First and Second Dose (lines), also includes the scale 
+  scale_y_continuous(sec.axis = sec_axis(~ .*25, name = "Vaccine Doses",
+                                         breaks = scales::pretty_breaks()))+
+  theme(axis.title.y.right = element_text(margin = margin(l = 15)))
+```
+
+```{r}
+#determine amount for each category in vizualization
+
+#Tyoe 1 Cases
+nyc_data %>%
+  filter(type == "1") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 2 First vaccine Dose
+nyc_data %>%
+  filter(type == "2") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 3 Second vaccine Dose
+nyc_data %>%
+  filter(type == "3") %>%
+  summarise(total_count = sum(count))
+```
+
+### SFig 4B: LA County Case and Vaccine Data 2022
+
+LA case data <https://app.powerbigov.us/view?r=eyJrIjoiNGI5MmEyMmQtYzVjMS00OTgwLWFhMDgtM2YyMTkxMjJl%5B…%5DIiwidCI6IjA3NTk3MjQ4LWVhMzgtNDUxYi04YWJlLWE2MzhlZGRiYWM4MSJ9>
+
+LA Vaccine Data <https://github.com/blab/mpox-la/blob/main/data/mpox_vax_by_dose.csv>
+
+collated data
+
+cases=type 1 admin dose 1 = type 2 admin dose 2 = type 3
+
+```{r}
+#import data
+la_data <- read_csv("la_collated_data_110325.csv")
+
+#correctly format dates
+la_data$date_formated <- as.Date(la_data$week_start_date, format = "%m/%d/%Y")
+
+#drop NA
+la_data <- la_data[!is.na(la_data$date_formated), ]
+
+# Assuming 'chicago_data' has columns: 'date_formated', 'count', 'type'
+# 'type' has 1 = Cases, 2 = First Dose, 3 = Second Dose
+
+# Create a new dataset with a separate y-axis scale for First and Second Dose
+la_data_line <- la_data[la_data$type %in% c(2, 3), ]
+
+# Plot
+ggplot() +
+  # Bar plot for Cases (type 1)
+  geom_bar(data = la_data[la_data$type == 1, ], 
+           aes(x = date_formated, y = count, fill = factor(type)), 
+           stat = "identity", 
+           position = "identity") +
+  
+  # Line plot for First Dose (type 2) and Second Dose (type 3)
+  geom_line(data = la_data_line, 
+            aes(x = date_formated, y = count/25, color = factor(type), group = type), 
+            size = 0.8) +
+  
+  # Theme and titles
+  theme_classic() +
+  labs(title = "MPOX Cases and Vaccines Administered per Week in Los Angeles County", 
+       x = "Date", 
+       y = "MPOX Cases", 
+       fill = NULL, 
+       color = "Vaccine Doses") +
+  
+  # Customize x-axis formatting
+  scale_x_date(
+  breaks = seq(min(la_data$date_formated), max(la_data$date_formated), by = "1 months"),
+  date_labels = "%b, %y"
+) +
+  
+  # Manual color scale
+  scale_fill_manual(values = c("1" = "seagreen3", "2" = "dodgerblue2", "3" = "red"),
+                    labels = c("Cases", "First Dose", "Second Dose")) +
+  scale_color_manual(values = c("2" = "dodgerblue2", "3" = "red"), 
+                     labels = c("First Dose", "Second Dose")) +
+  
+theme(legend.position = c(0.85, 0.8),
+        axis.title.x = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(t = 15)),  # Change font family for x-axis
+        axis.title.y = element_text(family = "Arial", hjust = 0.5, size = 12, margin = margin(r = 20)),  # Change font family for y-axis
+        axis.text.x = element_text(family = "Arial", angle = 45, hjust = 1, vjust = 1),  # Change font family for x-axis text
+        axis.text.y = element_text(family = "Arial", size = 10),  # Change font family for y-axis text
+        legend.title = element_text(family = "Arial", size = 10),  # Change font family for legend title
+        legend.text = element_text(family = "Arial", size = 9),    # Change font family for legend text
+        plot.title = element_blank()) +  # Hide title
+  # Create a second y-axis for First and Second Dose (lines), also includes the scale 
+  scale_y_continuous(sec.axis = sec_axis(~ .*25, name = "Vaccine Doses",
+                                         breaks = scales::pretty_breaks()))+
+  theme(axis.title.y.right = element_text(margin = margin(l = 15)))
+```
+
+```{r}
+#determine amount for each category in vizualization
+
+#Tyoe 1 Cases
+la_data %>%
+  filter(type == "1") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 2 First vaccine Dose
+la_data %>%
+  filter(type == "2") %>%
+  summarise(total_count = sum(count))
+
+#Tyoe 3 Second vaccine Dose
+la_data %>%
+  filter(type == "3") %>%
+  summarise(total_count = sum(count))
+```
+
+## Table 1
+
+### NMH Cohort Demographics
+
+```{r}
+#Read the CSV file into a data frame
+dem_table <- read.csv("021125_demtable.csv")
+col_var <- colnames(dem_table)
+print(col_var)
+
+# Convert colnames to lower case
+names(dem_table) <- tolower(names(dem_table))   
+
+
+dem_table <- replace(dem_table, dem_table == "Patient declined to respond", "Unknown")
+dem_table <- replace(dem_table, dem_table == "Patient unable to respond", "Unknown")
+
+
+dem_table <- dem_table %>%
+  mutate(
+    msm = recode(msm, "1" = "Yes", "2" = "No", "3" = "Unknown")  # change labels
+  )
+
+dem_table <- dem_table %>%
+  mutate(
+    sex = fct_infreq(sex),  # Reorder 'sex' by frequency
+    msm = fct_infreq(msm),  # Reorder 'msm' by frequency
+    dem_race = fct_infreq(dem_race),  # Reorder 'dem_race' by frequency
+    dem_ethnicity = fct_infreq(dem_ethnicity),  # Reorder 'dem_ethnicity' by frequency
+    pt_encounter = fct_infreq(pt_encounter)  # Reorder 'pt_encounter' by frequency
+  )
+# Create a tbl_summary using your data
+table1 <- dem_table %>%
+  tbl_summary(
+    include = c(age, sex, msm, dem_race, dem_ethnicity, pt_encounter),
+    missing = "no",
+    type = list(
+      age ~ "continuous", 
+      sex ~ "categorical", 
+      msm ~ "categorical", 
+      dem_race ~ "categorical", 
+      dem_ethnicity ~ "categorical", 
+      pt_encounter ~ "categorical"
+    ), 
+    label = list(
+      age = "Age",              # Relabel 'age'
+      sex = "Sex Assigned at Birth",                   # Relabel 'sex'
+      msm = "Men who have Sex with Men", # Relabel 'msm'
+      dem_race = "Race",      # Relabel 'dem_race'
+      dem_ethnicity = "Ethnicity",      # Relabel 'dem_ethnicity'
+      pt_encounter = "Patient Point of Care" # Relabel 'pt_encounter'
+    )
+  ) %>%
+  modify_header(
+    all_stat_cols() ~ "**Patients**", 
+    label= "**Variable**", # Fix: Modify all statistics columns header
+    all_stat_cols() ~ paste0("**Patients**\n(N = ", nrow(dem_table), ")")  # Modify column label with N
+  ) %>%
+  bold_labels()
+  
+# Print the summary table
+table1
+
+# Convert table1 to gt table format
+gt_table1 <- as_gt(table1)
+
+# Save the gt table as a PNG -this has to be run in the console
+gt::gtsave(gt_table1, "Table1.png")
+
+```
+
+## Table 2
+
+### NMH Cohort Vaccine, Treatment and STI Data
+
+```{r}
+#Read the CSV file into a data frame
+vax_table <- read.csv("table2.csv")
+col_var2 <- colnames(vax_table)
+print(col_var2)
+
+#make table
+table2 <- vax_table %>%
+  tbl_summary(
+    include = c(vax_doses, vax_1_before, vax_1_before_days, vax_1_after, vax_1_after_days, med_tpoxx, concur_active_4, comorb_hivstatus, sti_hiv_prep, sti_hiv_art),
+    by = mpox_year,
+    missing = "no",
+    type = list(
+      vax_doses ~ "categorical",
+      vax_1_before ~ "categorical",
+      vax_1_before_days ~ "continuous",
+      vax_1_after ~ "categorical",
+      vax_1_after_days ~ "continuous",
+      med_tpoxx ~ "categorical",
+      concur_active_4 ~ "categorical",
+      comorb_hivstatus ~ "categorical",
+      sti_hiv_prep ~ "categorical",
+      sti_hiv_art ~ "categorical"
+    ),
+    label = list(
+      vax_doses = "Total vaccine doses received",
+      vax_1_before = "First dose of vaccine administered prior to infection",
+      vax_1_before_days = "Days vaccine administered prior to infection",
+      vax_1_after = "First dose of vaccine administered post infection",
+      vax_1_after_days = "Days vaccine administered post infection",
+      med_tpoxx = "Received tecovirimat",
+      concur_active_4 = "Positive test indicated for active STI infection",
+      comorb_hivstatus = "Patient has a confirmed HIV diagnosis",
+      sti_hiv_prep = "Patient is currently on PREP",
+      sti_hiv_art = "Patient is currently on ART"
+    )
+  ) %>%
+  modify_table_body(
+    ~ .x %>%
+      filter(
+        !(
+          (variable == "med_tpoxx" | variable == "vax_1_before" | variable == "vax_1_after" | variable == "concur_active_4" | variable == "comorb_hivstatus" | variable == "sti_hiv_prep" | variable == "sti_hiv_art") &
+          row_type == "level" & 
+          label != "yes"
+        )
+      )
+  ) %>%
+  modify_header(label = "**Variable**") %>%
+  bold_labels()
+
+
+#look at the table 
+table2
+
+
+# Convert table1 to gt table format
+gt_table2 <- as_gt(table2)
+
+# Save the gt table as a PNG -this has to be run in the console
+gt::gtsave(gt_table2, "Table2.png")
+
+```
+
+## Figure 3
+
+### Fig 3A: NMH Cohort Map
+
+Patient cohort case counts per 100,000 people from 5/15/2022 to 4/30/2024
+
+Note that 18/108 patients did not reside in Chicago and 6/18 were out of state
+
+```{r}
+#load in Healthy Chicago Equity Zones csv with geometry
+hez_df <- read_csv("r_map_data/Healthy_Chicago_Equity_Zones_20250515.csv")
+
+#the sf package allows standard for encoding geographic vector data.
+hez_sf <- st_as_sf(hez_df, wkt = "Geometry", crs = 4326)
+
+#import cases and rates for nmh patients in hez zones
+
+nmh_hez_rates <- read_csv("r_map_data/nmh_chicago_case_rate.csv")
+
+#join map with data 
+chicago_map_data <- left_join(hez_sf, nmh_hez_rates, by = "Equity Zone")
+ 
+#plot map 
+ggplot(chicago_map_data) +
+  geom_sf(aes(fill = rate), color = "black") +  
+  scale_fill_distiller(palette = "PuRd", direction = 1) +
+  theme_void() +
+  labs(title = "NMH Cases in Chicago per Health Equity Zone", fill = "Cases per 100,000")
+```
+
+## Supplemental Table 1
+
+```{r}
+ncbi_accession_mpxv <- read_csv("ncbi_accession_mpxv.csv")
+
+gt_ncbi_accessions <- ncbi_accession_mpxv %>%
+  gt() %>%
+  tab_header(
+    title = "Mpox Virus Isolate Accession Numbers"
+  ) %>%
+  cols_label(
+    isolate_id = "Isolate ID",
+    ncbi_submission_id = "NCBI Submission ID",
+    ncbI_accession_number = "GenBank Accession Number",
+    bioproject = "BioProject ID",
+    sra_accession = "BioSample Accession"
+  ) %>%
+  tab_style(
+    style = cell_text(color = "#000000"),
+    locations = cells_body()
+  ) %>%
+  tab_style(
+    style = cell_text(
+      color = "#000000",
+      weight = "bold"
+    ),
+    locations = list(
+      cells_column_labels(),
+      cells_title(groups = "title")
+    )
+  ) %>%
+  tab_options(
+    table.border.top.color = "#000000",
+    table.border.bottom.color = "#000000",
+    heading.border.bottom.color = "#000000",
+    column_labels.border.top.color = "#000000",
+    column_labels.border.bottom.color = "#000000",
+    table_body.border.top.color = "#000000",
+    table_body.border.bottom.color = "#000000"
+  )
+
+gt_ncbi_accessions
+
+gtsave(
+  gt_ncbi_accessions,
+  "STable_1.png"
+)
+
+```
+
+### 2 page format
+
+```{r}
+
+# Import data
+ncbi_accession_mpxv <- read_csv("ncbi_accession_mpxv.csv")
+
+# Split data into two equal sections
+n <- ceiling(nrow(ncbi_accession_mpxv) / 2)
+
+ncbi_accession_mpxv_1 <- ncbi_accession_mpxv %>%
+  slice(1:n)
+
+ncbi_accession_mpxv_2 <- ncbi_accession_mpxv %>%
+  slice((n + 1):n())
+
+# Function to format both tables
+format_ncbi_table <- function(data) {
+  data %>%
+    gt() %>%
+    tab_header(
+      title = "Mpox Virus Isolate Accession Numbers"
+    ) %>%
+    cols_label(
+      isolate_id = "Isolate ID",
+      ncbi_submission_id = "NCBI Submission ID",
+      ncbI_accession_number = "GenBank Accession Number",
+      bioproject = "BioProject ID",
+      sra_accession = "BioSample Accession"
+    ) %>%
+    tab_style(
+      style = cell_text(color = "#000000"),
+      locations = cells_body()
+    ) %>%
+    tab_style(
+      style = cell_text(
+        color = "#000000",
+        weight = "bold"
+      ),
+      locations = list(
+        cells_column_labels(),
+        cells_title(groups = "title")
+      )
+    ) %>%
+    tab_options(
+      table.font.size = px(11),
+      data_row.padding = px(3),
+      column_labels.padding = px(5),
+      table.border.top.color = "#000000",
+      table.border.bottom.color = "#000000",
+      heading.border.bottom.color = "#000000",
+      column_labels.border.top.color = "#000000",
+      column_labels.border.bottom.color = "#000000",
+      table_body.border.top.color = "#000000",
+      table_body.border.bottom.color = "#000000"
+    )
+}
+
+# Create both tables
+gt_ncbi_accessions_1 <- format_ncbi_table(ncbi_accession_mpxv_1)
+gt_ncbi_accessions_2 <- format_ncbi_table(ncbi_accession_mpxv_2)
+
+# Display tables
+gt_ncbi_accessions_1
+gt_ncbi_accessions_2
+
+# Export tables as separate PNG files
+gtsave(
+  gt_ncbi_accessions_1,
+  "STable_1_Page1.png"
+)
+
+gtsave(
+  gt_ncbi_accessions_2,
+  "STable_1_Page2.png"
+)
+
+# View original dataset
+View(ncbi_accession_mpxv)
+
+```
