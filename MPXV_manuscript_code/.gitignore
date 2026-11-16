@@ -1,0 +1,11 @@
+.Rhistory
+.RData
+.Rproj.user/
+.DS_Store
+
+# Data are not distributed with this repository
+data/*
+!data/.gitkeep
+
+# Generated outputs
+results/
